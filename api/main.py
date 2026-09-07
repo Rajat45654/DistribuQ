@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import List, Optional
 from uuid import UUID
 from fastapi import FastAPI, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -43,6 +44,12 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    """Redirect root path to interactive Swagger documentation."""
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/healthz", tags=["System"])
