@@ -72,7 +72,7 @@ python scripts/demo_phase1.py
 
 ## Status Roadmap
 - [x] **Phase 1: Core Queue, Single Worker** *(Completed)*
-- [ ] **Phase 2: Multiple Workers, Concurrency Safety**
+- [x] **Phase 2: Multiple Workers, Concurrency Safety** *(Completed)*
 - [ ] **Phase 3: Retries, Backoff, Dead-Letter Queue**
 - [ ] **Phase 4: Scheduling: Delayed & Recurring Jobs**
 - [ ] **Phase 5: Real-Time Dashboard**

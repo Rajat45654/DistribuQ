@@ -282,7 +282,7 @@ distribuq/
 *(The agent/human should update this section as work progresses — mark phases complete, note deviations from this plan and why.)*
 
 - [x] Phase 1 — Core Queue, Single Worker
-- [ ] Phase 2 — Multiple Workers, Concurrency Safety
+- [x] Phase 2 — Multiple Workers, Concurrency Safety
 - [ ] Phase 3 — Retries, Backoff, Dead-Letter Queue
 - [ ] Phase 4 — Scheduling
 - [ ] Phase 5 — Real-Time Dashboard
