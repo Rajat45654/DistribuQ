@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     DATABASE_URL: str = "postgresql://distribuq:password@localhost:5432/distribuq"
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = "redis://localhost:16379/0"
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     LOG_LEVEL: str = "INFO"
