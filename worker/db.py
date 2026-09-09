@@ -97,3 +97,99 @@ async def mark_job_failed(job_id: UUID, error_message: str) -> None:
         async with conn.cursor() as cur:
             await cur.execute(query, (error_message, job_id))
             await conn.commit()
+
+
+async def upsert_worker_heartbeat(worker_id: str, jobs_processed: int = 0) -> None:
+    """Upserts worker liveness status and processed jobs count into the workers table."""
+    query = """
+        INSERT INTO workers (id, status, last_heartbeat, jobs_processed, started_at)
+        VALUES (%s, 'ALIVE', NOW(), %s, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+            status = 'ALIVE',
+            last_heartbeat = NOW(),
+            jobs_processed = EXCLUDED.jobs_processed;
+    """
+    pool = get_worker_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query, (worker_id, jobs_processed))
+            await conn.commit()
+
+
+async def mark_worker_dead(worker_id: str) -> None:
+    """Marks a specific worker as DEAD (e.g., during graceful shutdown)."""
+    query = """
+        UPDATE workers
+        SET status = 'DEAD'
+        WHERE id = %s;
+    """
+    pool = get_worker_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query, (worker_id,))
+            await conn.commit()
+
+
+async def mark_expired_workers_dead(timeout_seconds: int = 10) -> list[str]:
+    """Marks workers as DEAD if their last heartbeat is older than timeout_seconds."""
+    query = """
+        UPDATE workers
+        SET status = 'DEAD'
+        WHERE status = 'ALIVE'
+          AND last_heartbeat < NOW() - make_interval(secs => %s)
+        RETURNING id;
+    """
+    pool = get_worker_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query, (timeout_seconds,))
+            rows = await cur.fetchall()
+            await conn.commit()
+            return [row["id"] for row in rows]
+
+
+async def reclaim_stale_jobs(visibility_timeout_seconds: int = 15) -> list[dict]:
+    """
+    Reclaims jobs that are still RUNNING but:
+    1) locked_at is older than visibility_timeout_seconds, OR
+    2) locked_by worker is DEAD or has timed-out heartbeats.
+    Resets status back to PENDING and returns the reclaimed job records.
+    """
+    query = """
+        UPDATE jobs
+        SET status = 'PENDING',
+            locked_by = NULL,
+            locked_at = NULL
+        WHERE status = 'RUNNING'
+          AND (
+            locked_at < NOW() - make_interval(secs => %s)
+            OR locked_by IN (
+                SELECT id FROM workers 
+                WHERE status = 'DEAD' 
+                   OR last_heartbeat < NOW() - make_interval(secs => %s)
+            )
+          )
+        RETURNING id, type, locked_by;
+    """
+    pool = get_worker_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query, (visibility_timeout_seconds, visibility_timeout_seconds))
+            rows = await cur.fetchall()
+            await conn.commit()
+            return rows
+
+
+async def list_all_workers() -> list[dict]:
+    """Lists all registered workers and their current heartbeat/health state."""
+    query = """
+        SELECT id, status, last_heartbeat, jobs_processed, started_at
+        FROM workers
+        ORDER BY started_at DESC;
+    """
+    pool = get_worker_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query)
+            return await cur.fetchall()
+
