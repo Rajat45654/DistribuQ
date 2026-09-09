@@ -10,6 +10,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from api.config import settings
+from api.redis_client import atomic_reserve_job, ack_job
 from worker.db import (
     init_worker_db_pool,
     close_worker_db_pool,
@@ -19,6 +20,7 @@ from worker.db import (
 )
 from worker.handlers.registry import get_handler, execute_handler
 import worker.handlers.default_handlers  # ensure default handlers are registered
+from worker.heartbeat import HeartbeatManager
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -28,11 +30,24 @@ logger = logging.getLogger("distribuq.worker")
 
 
 class Worker:
-    def __init__(self, queue: str = settings.DEFAULT_QUEUE, worker_id: str | None = None):
+    def __init__(
+        self,
+        queue: str = settings.DEFAULT_QUEUE,
+        processing_queue: str = settings.DEFAULT_PROCESSING_QUEUE,
+        worker_id: str | None = None,
+        heartbeat_interval_sec: int = settings.HEARTBEAT_INTERVAL_SEC,
+    ):
         self.worker_id = worker_id or f"worker-{os.getpid()}-{uuid4().hex[:6]}"
         self.queue = queue
+        self.processing_queue = processing_queue
         self.running = False
+        self.jobs_processed = 0
         self.redis_client: aioredis.Redis | None = None
+        self.heartbeat = HeartbeatManager(
+            worker_id=self.worker_id,
+            get_jobs_processed=lambda: self.jobs_processed,
+            interval_sec=heartbeat_interval_sec,
+        )
 
     def handle_signal(self, signum, frame):
         logger.info("[%s] Received shutdown signal (%s). Initiating graceful shutdown...", self.worker_id, signum)
@@ -40,7 +55,12 @@ class Worker:
 
     async def start(self):
         self.running = True
-        logger.info("[%s] Worker starting up. Listening on queue '%s'...", self.worker_id, self.queue)
+        logger.info(
+            "[%s] Worker starting up. Listening on '%s' (processing: '%s')...",
+            self.worker_id,
+            self.queue,
+            self.processing_queue,
+        )
 
         # Setup OS signal handling
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -53,16 +73,22 @@ class Worker:
         self.redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
         await self.redis_client.ping()
 
+        # Start periodic background heartbeats
+        await self.heartbeat.start()
+
         try:
             while self.running:
                 try:
-                    # Pop from queue (blocks up to 1 second to allow checking self.running)
-                    pop_result = await self.redis_client.brpop(self.queue, timeout=1)
-                    if not pop_result:
+                    # Atomically reserve job from source queue into processing queue
+                    job_id = await atomic_reserve_job(
+                        source_queue=self.queue,
+                        processing_queue=self.processing_queue,
+                        timeout=1,
+                        client=self.redis_client,
+                    )
+                    if not job_id:
                         continue
 
-                    _, job_id_str = pop_result
-                    job_id = UUID(job_id_str)
                     await self.process_job(job_id)
 
                 except asyncio.CancelledError:
@@ -76,40 +102,63 @@ class Worker:
             await self.shutdown()
 
     async def process_job(self, job_id: UUID):
-        logger.info("[%s] Picked up job %s from Redis", self.worker_id, job_id)
+        logger.info("[%s] Reserved job %s in %s", self.worker_id, job_id, self.processing_queue)
         job = await fetch_and_lock_job(job_id, self.worker_id)
         if not job:
             logger.warning("[%s] Job %s could not be locked (may be cancelled or already processed)", self.worker_id, job_id)
+            await ack_job(job_id, self.processing_queue, self.redis_client)
             return
 
         job_type = job["type"]
         payload = job["payload"] or {}
-        logger.info("[%s] Processing job %s (type: %s, attempt %d/%d)", self.worker_id, job_id, job_type, job["attempts"], job["max_attempts"])
+        logger.info(
+            "[%s] Processing job %s (type: %s, attempt %d/%d)",
+            self.worker_id,
+            job_id,
+            job_type,
+            job["attempts"],
+            job["max_attempts"],
+        )
 
         try:
             handler = get_handler(job_type)
             result = await execute_handler(handler, payload)
             await mark_job_success(job_id, result)
+            self.jobs_processed += 1
             logger.info("[%s] Job %s COMPLETED successfully with result: %s", self.worker_id, job_id, result)
         except Exception as err:
             logger.error("[%s] Job %s FAILED with error: %s", self.worker_id, job_id, err)
             await mark_job_failed(job_id, str(err))
+            self.jobs_processed += 1
+        finally:
+            # Acknowledge and remove from the processing list once persisted to Postgres
+            await ack_job(job_id, self.processing_queue, self.redis_client)
 
     async def shutdown(self):
         logger.info("[%s] Shutting down worker...", self.worker_id)
+        if self.heartbeat:
+            await self.heartbeat.stop()
         if self.redis_client:
             await self.redis_client.aclose()
-        await close_worker_db_pool()
+            self.redis_client = None
         logger.info("[%s] Worker shutdown complete.", self.worker_id)
 
 
 if __name__ == "__main__":
     import selectors
     worker = Worker()
+
+    async def run_worker():
+        try:
+            await worker.start()
+        finally:
+            await close_worker_db_pool()
+
     try:
         if sys.platform == "win32":
-            asyncio.run(worker.start(), loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()))
+            asyncio.run(run_worker(), loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()))
         else:
-            asyncio.run(worker.start())
+            asyncio.run(run_worker())
     except KeyboardInterrupt:
         pass
+
