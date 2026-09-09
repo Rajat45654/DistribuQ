@@ -10,7 +10,10 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     LOG_LEVEL: str = "INFO"
     DEFAULT_QUEUE: str = "queue:default"
+    DEFAULT_PROCESSING_QUEUE: str = "queue:processing"
     DEFAULT_VISIBILITY_TIMEOUT_SEC: int = 60
+    HEARTBEAT_INTERVAL_SEC: int = 3
+    WORKER_TIMEOUT_SEC: int = 10
 
 
 settings = Settings()
