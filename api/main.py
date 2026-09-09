@@ -11,12 +11,13 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from api.config import settings
-from api.db import init_db_pool, close_db_pool, create_job, get_job, get_db_pool
+from api.db import init_db_pool, close_db_pool, create_job, get_job, get_db_pool, get_workers
 from api.models import (
     JobCreateRequest,
     JobCreateResponse,
     JobDetailResponse,
     JobStatus,
+    WorkerDetailResponse,
 )
 from api.redis_client import init_redis, close_redis, enqueue_job
 
@@ -146,3 +147,15 @@ async def list_jobs(
             await cur.execute(query, tuple(params))
             rows = await cur.fetchall()
             return [JobDetailResponse(**row) for row in rows]
+
+
+@app.get(
+    "/api/v1/workers",
+    response_model=List[WorkerDetailResponse],
+    tags=["Workers"],
+    summary="List all registered workers and their health state",
+)
+async def list_registered_workers():
+    workers = await get_workers()
+    return [WorkerDetailResponse(**w) for w in workers]
+

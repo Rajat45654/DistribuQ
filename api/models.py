@@ -45,3 +45,17 @@ class JobDetailResponse(BaseModel):
     locked_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+
+
+class WorkerStatus(str, Enum):
+    ALIVE = "ALIVE"
+    DEAD = "DEAD"
+
+
+class WorkerDetailResponse(BaseModel):
+    id: str
+    status: WorkerStatus
+    last_heartbeat: datetime
+    jobs_processed: int
+    started_at: datetime
+

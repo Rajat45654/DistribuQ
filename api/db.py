@@ -90,3 +90,17 @@ async def get_job(job_id: UUID) -> Optional[Dict[str, Any]]:
         async with conn.cursor() as cur:
             await cur.execute(query, (job_id,))
             return await cur.fetchone()
+
+
+async def get_workers() -> list[Dict[str, Any]]:
+    query = """
+        SELECT id, status, last_heartbeat, jobs_processed, started_at
+        FROM workers
+        ORDER BY started_at DESC;
+    """
+    pool = get_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query)
+            return await cur.fetchall()
+
