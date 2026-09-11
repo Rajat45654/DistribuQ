@@ -17,10 +17,13 @@ from worker.db import (
     fetch_and_lock_job,
     mark_job_success,
     mark_job_failed,
+    mark_job_retrying,
 )
 from worker.handlers.registry import get_handler, execute_handler
 import worker.handlers.default_handlers  # ensure default handlers are registered
 from worker.heartbeat import HeartbeatManager
+from worker.retry import compute_next_retry_at
+
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -128,9 +131,26 @@ class Worker:
             logger.info("[%s] Job %s COMPLETED successfully with result: %s", self.worker_id, job_id, result)
         except Exception as err:
             logger.error("[%s] Job %s FAILED with error: %s", self.worker_id, job_id, err)
-            await mark_job_failed(job_id, str(err))
+            current_attempts = job.get("attempts", 1)
+            max_attempts = job.get("max_attempts", 3)
+
+            if current_attempts < max_attempts:
+                next_retry = compute_next_retry_at(attempt=current_attempts)
+                await mark_job_retrying(job_id, str(err), next_retry)
+                logger.warning(
+                    "[%s] Job %s scheduled for retry (attempt %d/%d) at %s",
+                    self.worker_id,
+                    job_id,
+                    current_attempts,
+                    max_attempts,
+                    next_retry,
+                )
+            else:
+                await mark_job_failed(job_id, str(err))
+
             self.jobs_processed += 1
         finally:
+
             # Acknowledge and remove from the processing list once persisted to Postgres
             await ack_job(job_id, self.processing_queue, self.redis_client)
 

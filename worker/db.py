@@ -99,6 +99,25 @@ async def mark_job_failed(job_id: UUID, error_message: str) -> None:
             await conn.commit()
 
 
+async def mark_job_retrying(job_id: UUID, error_message: str, next_retry_at: Any) -> None:
+    """Marks a job as RETRYING, setting next_retry_at timestamp, error message, and releasing lock."""
+    query = """
+        UPDATE jobs
+        SET status = 'RETRYING',
+            error = %s,
+            next_retry_at = %s,
+            locked_by = NULL,
+            locked_at = NULL
+        WHERE id = %s;
+    """
+    pool = get_worker_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query, (error_message, next_retry_at, job_id))
+            await conn.commit()
+
+
+
 async def upsert_worker_heartbeat(worker_id: str, jobs_processed: int = 0) -> None:
     """Upserts worker liveness status and processed jobs count into the workers table."""
     query = """
