@@ -5,13 +5,14 @@ from uuid import UUID
 import redis.asyncio as aioredis
 
 from api.config import settings
-from api.redis_client import requeue_job
+from api.redis_client import requeue_job, get_redis
 from worker.db import (
     get_worker_db_pool,
     init_worker_db_pool,
     close_worker_db_pool,
     mark_expired_workers_dead,
     reclaim_stale_jobs,
+    reclaim_due_retry_jobs,
 )
 
 logger = logging.getLogger("distribuq.worker.reaper")
@@ -71,7 +72,27 @@ class Reaper:
                 except Exception as e:
                     logger.error("[Reaper] Failed to requeue job %s in Redis: %s", job_id, e)
 
+        # 4. Reclaim due RETRYING jobs and push them back into Redis source queue
+        due_retries = await reclaim_due_retry_jobs()
+        if due_retries:
+            logger.info("[Reaper] Found %d due retry jobs to re-enqueue", len(due_retries))
+            c = self.redis_client or get_redis()
+            for rjob in due_retries:
+                r_id = UUID(str(rjob["id"]))
+                try:
+                    await c.lpush(self.source_queue, str(r_id))
+                    logger.info(
+                        "[Reaper] Re-enqueued retry job %s (attempt %d/%d) onto %s",
+                        r_id,
+                        rjob["attempts"],
+                        rjob["max_attempts"],
+                        self.source_queue,
+                    )
+                except Exception as e:
+                    logger.error("[Reaper] Failed to re-enqueue retry job %s: %s", r_id, e)
+
         return reclaimed_jobs
+
 
     async def start(self) -> None:
         """Starts the periodic reaper loop."""

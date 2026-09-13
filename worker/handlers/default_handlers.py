@@ -36,3 +36,17 @@ async def handle_sleep(seconds: float = 1.0) -> dict:
 async def handle_fail(reason: str = "Simulated job failure") -> Any:
     """Intentionally raises an exception to test failure transitions."""
     raise RuntimeError(reason)
+
+
+_FLAKY_ATTEMPTS: dict[str, int] = {}
+
+
+@register_handler("flaky")
+async def handle_flaky(task_key: str = "default", fail_until_attempt: int = 2) -> dict:
+    """Fails until attempt reaches fail_until_attempt, then succeeds."""
+    count = _FLAKY_ATTEMPTS.get(task_key, 0) + 1
+    _FLAKY_ATTEMPTS[task_key] = count
+    if count < fail_until_attempt:
+        raise RuntimeError(f"Simulated transient error on attempt {count}")
+    return {"recovered_at_attempt": count, "task_key": task_key}
+

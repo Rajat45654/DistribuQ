@@ -134,10 +134,12 @@ async def test_job_failure_handling(client: AsyncClient):
         json={
             "type": "fail",
             "payload": {"reason": "Test fault condition"},
+            "max_attempts": 1,
         },
     )
     assert response.status_code == 201
     job_id = UUID(response.json()["job_id"])
+
 
     worker = Worker(worker_id="test-worker-fail")
     worker_task = asyncio.create_task(worker.start())

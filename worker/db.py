@@ -212,3 +212,28 @@ async def list_all_workers() -> list[dict]:
             await cur.execute(query)
             return await cur.fetchall()
 
+
+async def reclaim_due_retry_jobs() -> list[dict]:
+    """
+    Finds jobs in RETRYING status whose next_retry_at is due (next_retry_at <= NOW()).
+    Resets status to PENDING, clears lock fields, and returns the records so they can be
+    re-enqueued into Redis.
+    """
+    query = """
+        UPDATE jobs
+        SET status = 'PENDING',
+            locked_by = NULL,
+            locked_at = NULL
+        WHERE status = 'RETRYING'
+          AND next_retry_at <= NOW()
+        RETURNING id, type, attempts, max_attempts;
+    """
+    pool = get_worker_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query)
+            rows = await cur.fetchall()
+            await conn.commit()
+            return rows
+
+
