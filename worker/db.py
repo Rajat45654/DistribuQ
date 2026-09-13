@@ -117,6 +117,43 @@ async def mark_job_retrying(job_id: UUID, error_message: str, next_retry_at: Any
             await conn.commit()
 
 
+async def move_to_dead_letter(job_id: UUID, final_error: str, attempts_made: int) -> None:
+    """Marks a job as DEAD_LETTER in jobs table and archives an audit row into dead_letters table."""
+    query_jobs = """
+        UPDATE jobs
+        SET status = 'DEAD_LETTER',
+            error = %s,
+            locked_by = NULL,
+            locked_at = NULL
+        WHERE id = %s;
+    """
+    query_dlq = """
+        INSERT INTO dead_letters (job_id, final_error, attempts_made, moved_at)
+        VALUES (%s, %s, %s, NOW());
+    """
+    pool = get_worker_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query_jobs, (final_error, job_id))
+            await cur.execute(query_dlq, (job_id, final_error, attempts_made))
+            await conn.commit()
+
+
+async def get_dead_letter(job_id: UUID) -> Optional[dict]:
+    """Retrieves the dead letter audit record for a given job_id."""
+    query = """
+        SELECT id, job_id, final_error, attempts_made, moved_at
+        FROM dead_letters
+        WHERE job_id = %s;
+    """
+    pool = get_worker_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query, (job_id,))
+            return await cur.fetchone()
+
+
+
 
 async def upsert_worker_heartbeat(worker_id: str, jobs_processed: int = 0) -> None:
     """Upserts worker liveness status and processed jobs count into the workers table."""

@@ -18,6 +18,7 @@ from worker.db import (
     mark_job_success,
     mark_job_failed,
     mark_job_retrying,
+    move_to_dead_letter,
 )
 from worker.handlers.registry import get_handler, execute_handler
 import worker.handlers.default_handlers  # ensure default handlers are registered
@@ -125,7 +126,8 @@ class Worker:
 
         try:
             handler = get_handler(job_type)
-            result = await execute_handler(handler, payload)
+            handler_payload = {k: v for k, v in payload.items() if not k.startswith("_")} if isinstance(payload, dict) else payload
+            result = await execute_handler(handler, handler_payload)
             await mark_job_success(job_id, result)
             self.jobs_processed += 1
             logger.info("[%s] Job %s COMPLETED successfully with result: %s", self.worker_id, job_id, result)
@@ -135,7 +137,8 @@ class Worker:
             max_attempts = job.get("max_attempts", 3)
 
             if current_attempts < max_attempts:
-                next_retry = compute_next_retry_at(attempt=current_attempts)
+                base_delay = payload.get("_base_delay", 1.0) if isinstance(payload, dict) else 1.0
+                next_retry = compute_next_retry_at(attempt=current_attempts, base_delay=base_delay)
                 await mark_job_retrying(job_id, str(err), next_retry)
                 logger.warning(
                     "[%s] Job %s scheduled for retry (attempt %d/%d) at %s",
@@ -146,7 +149,14 @@ class Worker:
                     next_retry,
                 )
             else:
-                await mark_job_failed(job_id, str(err))
+                await move_to_dead_letter(job_id, str(err), current_attempts)
+                logger.warning(
+                    "[%s] Job %s exceeded max attempts (%d/%d), moved to dead-letter queue",
+                    self.worker_id,
+                    job_id,
+                    current_attempts,
+                    max_attempts,
+                )
 
             self.jobs_processed += 1
         finally:

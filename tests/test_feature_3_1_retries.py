@@ -119,7 +119,7 @@ async def test_worker_fails_job_when_max_attempts_exhausted(client: AsyncClient)
     for _ in range(25):
         await asyncio.sleep(0.2)
         j = await get_job(job_id)
-        if j and j["status"] == "FAILED":
+        if j and j["status"] in ("FAILED", "DEAD_LETTER"):
             failed = True
             assert j["attempts"] == 1
             assert "Unrecoverable single-attempt error" in j["error"]

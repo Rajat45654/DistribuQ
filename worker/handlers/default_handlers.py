@@ -33,7 +33,7 @@ async def handle_sleep(seconds: float = 1.0) -> dict:
 
 
 @register_handler("fail")
-async def handle_fail(reason: str = "Simulated job failure") -> Any:
+async def handle_fail(reason: str = "Simulated job failure", **kwargs: Any) -> Any:
     """Intentionally raises an exception to test failure transitions."""
     raise RuntimeError(reason)
 

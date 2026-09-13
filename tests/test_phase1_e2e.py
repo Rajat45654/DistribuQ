@@ -148,7 +148,7 @@ async def test_job_failure_handling(client: AsyncClient):
     for _ in range(25):
         await asyncio.sleep(0.2)
         job = await get_job(job_id)
-        if job and job["status"] == "FAILED":
+        if job and job["status"] in ("FAILED", "DEAD_LETTER"):
             failed = True
             assert "Test fault condition" in job["error"]
             assert job["locked_by"] is None
