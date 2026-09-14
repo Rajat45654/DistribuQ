@@ -58,14 +58,23 @@ python -m api.run
 ```
 API Documentation is available interactively at `http://localhost:8080/docs`.
 
-### 5. Run the Worker
+### 5. Run Workers and Reaper
 ```bash
+# In separate terminals:
 python -m worker.worker
+python -m worker.reaper
 ```
 
-### 6. Run Live Demo
+### 6. Run Live Demos
 ```bash
+# Phase 1: Core single-worker queue
 python scripts/demo_phase1.py
+
+# Phase 2: Multi-worker concurrency & crash recovery
+python scripts/demo_phase2.py
+
+# Phase 3: Retries, exponential backoff, DLQ & replay
+python scripts/demo_phase3.py
 ```
 
 ---
@@ -73,7 +82,7 @@ python scripts/demo_phase1.py
 ## Status Roadmap
 - [x] **Phase 1: Core Queue, Single Worker** *(Completed)*
 - [x] **Phase 2: Multiple Workers, Concurrency Safety** *(Completed)*
-- [ ] **Phase 3: Retries, Backoff, Dead-Letter Queue**
+- [x] **Phase 3: Retries, Backoff, Dead-Letter Queue** *(Completed)*
 - [ ] **Phase 4: Scheduling: Delayed & Recurring Jobs**
 - [ ] **Phase 5: Real-Time Dashboard**
 - [ ] **Phase 6: Performance Testing & Scaling Analysis**
