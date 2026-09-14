@@ -11,13 +11,24 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from api.config import settings
-from api.db import init_db_pool, close_db_pool, create_job, get_job, get_db_pool, get_workers
+from api.db import (
+    init_db_pool,
+    close_db_pool,
+    create_job,
+    get_job,
+    get_db_pool,
+    get_workers,
+    get_dead_letters,
+    replay_dead_letter,
+)
 from api.models import (
     JobCreateRequest,
     JobCreateResponse,
     JobDetailResponse,
     JobStatus,
     WorkerDetailResponse,
+    DeadLetterResponse,
+    ReplayResponse,
 )
 from api.redis_client import init_redis, close_redis, enqueue_job
 
@@ -158,4 +169,44 @@ async def list_jobs(
 async def list_registered_workers():
     workers = await get_workers()
     return [WorkerDetailResponse(**w) for w in workers]
+
+
+@app.get(
+    "/api/v1/dead-letters",
+    response_model=List[DeadLetterResponse],
+    tags=["Dead Letters"],
+    summary="List dead-lettered jobs",
+)
+async def list_dead_letters(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    records = await get_dead_letters(limit=limit, offset=offset)
+    return [DeadLetterResponse(**r) for r in records]
+
+
+@app.post(
+    "/api/v1/dead-letters/{id}/replay",
+    response_model=ReplayResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Dead Letters"],
+    summary="Replay a dead-lettered job",
+)
+async def replay_dead_letter_job(id: UUID):
+    result = await replay_dead_letter(id)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Dead letter record '{id}' not found",
+        )
+    job_id = result["job_id"]
+    await enqueue_job(job_id=job_id)
+    logger.info("Replayed dead letter %s (job %s) - re-enqueued as PENDING", result["dead_letter_id"], job_id)
+    return ReplayResponse(
+        message="Job successfully replayed and enqueued for execution",
+        job_id=job_id,
+        dead_letter_id=result["dead_letter_id"],
+        status=JobStatus.PENDING,
+    )
+
 

@@ -104,3 +104,63 @@ async def get_workers() -> list[Dict[str, Any]]:
             await cur.execute(query)
             return await cur.fetchall()
 
+
+async def get_dead_letters(limit: int = 50, offset: int = 0) -> list[Dict[str, Any]]:
+    """Retrieves all dead-lettered jobs with pagination, joining job metadata."""
+    query = """
+        SELECT dl.id, dl.job_id, dl.final_error, dl.attempts_made, dl.moved_at,
+               j.type AS job_type, j.payload AS payload
+        FROM dead_letters dl
+        LEFT JOIN jobs j ON dl.job_id = j.id
+        ORDER BY dl.moved_at DESC
+        LIMIT %s OFFSET %s;
+    """
+    pool = get_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query, (limit, offset))
+            return await cur.fetchall()
+
+
+async def replay_dead_letter(identifier: UUID) -> Optional[Dict[str, Any]]:
+    """
+    Looks up a dead letter by either dead_letters.id or jobs.id.
+    Deletes the dead letter entry and resets the job to PENDING with 0 attempts.
+    """
+    pool = get_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT dl.id AS dead_letter_id, dl.job_id
+                FROM dead_letters dl
+                WHERE dl.id = %s OR dl.job_id = %s;
+                """,
+                (identifier, identifier),
+            )
+            record = await cur.fetchone()
+            if not record:
+                return None
+
+            dl_id = record["dead_letter_id"]
+            job_id = record["job_id"]
+
+            await cur.execute("DELETE FROM dead_letters WHERE id = %s;", (dl_id,))
+            await cur.execute(
+                """
+                UPDATE jobs
+                SET status = 'PENDING',
+                    attempts = 0,
+                    error = NULL,
+                    result = NULL,
+                    next_retry_at = NULL,
+                    locked_by = NULL,
+                    locked_at = NULL
+                WHERE id = %s;
+                """,
+                (job_id,),
+            )
+            await conn.commit()
+            return {"dead_letter_id": dl_id, "job_id": job_id}
+
+

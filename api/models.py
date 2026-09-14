@@ -59,3 +59,21 @@ class WorkerDetailResponse(BaseModel):
     jobs_processed: int
     started_at: datetime
 
+
+class DeadLetterResponse(BaseModel):
+    id: UUID
+    job_id: UUID
+    final_error: str
+    attempts_made: int
+    moved_at: datetime
+    job_type: Optional[str] = None
+    payload: Optional[Dict[str, Any]] = None
+
+
+class ReplayResponse(BaseModel):
+    message: str
+    job_id: UUID
+    dead_letter_id: UUID
+    status: JobStatus
+
+
