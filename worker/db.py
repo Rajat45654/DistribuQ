@@ -153,6 +153,21 @@ async def get_dead_letter(job_id: UUID) -> Optional[dict]:
             return await cur.fetchone()
 
 
+async def get_pending_scheduled_jobs() -> list[dict]:
+    """Retrieves all PENDING jobs that have a scheduled_for timestamp."""
+    query = """
+        SELECT id, scheduled_for, priority
+        FROM jobs
+        WHERE status = 'PENDING' AND scheduled_for IS NOT NULL;
+    """
+    pool = get_worker_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query)
+            return await cur.fetchall()
+
+
+
 
 
 async def upsert_worker_heartbeat(worker_id: str, jobs_processed: int = 0) -> None:

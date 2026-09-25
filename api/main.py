@@ -30,7 +30,7 @@ from api.models import (
     DeadLetterResponse,
     ReplayResponse,
 )
-from api.redis_client import init_redis, close_redis, enqueue_job
+from api.redis_client import init_redis, close_redis, enqueue_job, schedule_job
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -89,11 +89,12 @@ async def submit_job(job_req: JobCreateRequest):
     job_id = job_record["id"]
 
     # 2. If it's not a delayed job, push onto Redis immediately (FIFO)
-    # (Scheduled jobs in Phase 4 stay out of the queue until due)
+    # If scheduled_for is set, register into Redis scheduled sorted set
     if job_req.scheduled_for is None:
         await enqueue_job(job_id=job_id)
         logger.info("Submitted and enqueued job %s (type: %s)", job_id, job_req.type)
     else:
+        await schedule_job(job_id=job_id, scheduled_for=job_req.scheduled_for)
         logger.info("Scheduled job %s for %s", job_id, job_req.scheduled_for)
 
     return JobCreateResponse(job_id=job_id, status=JobStatus.PENDING)

@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     DEFAULT_VISIBILITY_TIMEOUT_SEC: int = 60
     HEARTBEAT_INTERVAL_SEC: int = 3
     WORKER_TIMEOUT_SEC: int = 10
+    DEFAULT_SCHEDULED_SET: str = "zset:scheduled"
 
 
 settings = Settings()

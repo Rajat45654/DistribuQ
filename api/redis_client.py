@@ -1,5 +1,6 @@
+from datetime import datetime, timezone
 import logging
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 import redis.asyncio as aioredis
 
@@ -95,4 +96,53 @@ async def requeue_job(
     await c.lrem(processing_queue, 1, str(job_id))
     await c.rpush(target_queue, str(job_id))
     logger.info("Requeued stale job %s from %s back to %s", job_id, processing_queue, target_queue)
+
+
+PROMOTE_SCHEDULED_LUA = """
+local due = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+local promoted = {}
+for i, job_id in ipairs(due) do
+    redis.call('ZREM', KEYS[1], job_id)
+    redis.call('LPUSH', KEYS[2], job_id)
+    table.insert(promoted, job_id)
+end
+return promoted
+"""
+
+
+async def schedule_job(
+    job_id: UUID,
+    scheduled_for: datetime,
+    scheduled_set: str = settings.DEFAULT_SCHEDULED_SET,
+    client: Optional[aioredis.Redis] = None,
+) -> int:
+    """
+    Registers a job UUID in the Redis sorted set with its scheduled_for timestamp as score.
+    """
+    c = client or get_redis()
+    score = scheduled_for.timestamp()
+    added = await c.zadd(scheduled_set, {str(job_id): score})
+    logger.debug("Scheduled job %s for %s in %s", job_id, scheduled_for, scheduled_set)
+    return added
+
+
+async def promote_due_scheduled_jobs(
+    target_queue: str = settings.DEFAULT_QUEUE,
+    scheduled_set: str = settings.DEFAULT_SCHEDULED_SET,
+    now: Optional[datetime] = None,
+    client: Optional[aioredis.Redis] = None,
+) -> List[UUID]:
+    """
+    Atomically moves all jobs whose scheduled_for <= now from scheduled_set into target_queue.
+    Returns the list of promoted job UUIDs.
+    """
+    c = client or get_redis()
+    now_ts = (now or datetime.now(timezone.utc)).timestamp()
+    promoted_str_list = await c.eval(PROMOTE_SCHEDULED_LUA, 2, scheduled_set, target_queue, now_ts)
+    if not promoted_str_list:
+        return []
+    promoted_uuids = [UUID(jid) for jid in promoted_str_list]
+    logger.info("Promoted %d due scheduled jobs from %s into %s", len(promoted_uuids), scheduled_set, target_queue)
+    return promoted_uuids
+
 
