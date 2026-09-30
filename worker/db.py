@@ -53,7 +53,7 @@ async def fetch_and_lock_job(job_id: UUID, worker_id: str) -> Optional[Dict[str,
             locked_at = NOW(),
             attempts = attempts + 1
         WHERE id = %s AND status IN ('PENDING', 'RETRYING')
-        RETURNING id, type, payload, attempts, max_attempts;
+        RETURNING id, type, payload, priority, attempts, max_attempts, recurrence_rule;
     """
     pool = get_worker_db_pool()
     async with pool.connection() as conn:
@@ -240,7 +240,7 @@ async def reclaim_stale_jobs(visibility_timeout_seconds: int = 15) -> list[dict]
                    OR last_heartbeat < NOW() - make_interval(secs => %s)
             )
           )
-        RETURNING id, type, locked_by;
+        RETURNING id, type, priority, locked_by;
     """
     pool = get_worker_db_pool()
     async with pool.connection() as conn:
@@ -278,7 +278,7 @@ async def reclaim_due_retry_jobs() -> list[dict]:
             locked_at = NULL
         WHERE status = 'RETRYING'
           AND next_retry_at <= NOW()
-        RETURNING id, type, attempts, max_attempts;
+        RETURNING id, type, priority, attempts, max_attempts;
     """
     pool = get_worker_db_pool()
     async with pool.connection() as conn:

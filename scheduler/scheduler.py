@@ -91,10 +91,11 @@ class Scheduler:
             due_retries = await reclaim_due_retry_jobs()
             for rjob in due_retries:
                 job_id = UUID(str(rjob["id"]))
-                await enqueue_job(job_id=job_id, queue=self.target_queue, client=self.redis_client)
+                priority = rjob.get("priority", 0)
+                await enqueue_job(job_id=job_id, priority=priority, client=self.redis_client)
                 logger.info(
-                    "[Scheduler] Promoted retry job %s (attempt %d/%d) to %s",
-                    job_id, rjob["attempts"], rjob["max_attempts"], self.target_queue,
+                    "[Scheduler] Promoted retry job %s (priority %d, attempt %d/%d)",
+                    job_id, priority, rjob["attempts"], rjob["max_attempts"],
                 )
             return len(due_retries)
         except Exception as e:
@@ -108,13 +109,13 @@ class Scheduler:
             stale_jobs = await reclaim_stale_jobs(settings.DEFAULT_VISIBILITY_TIMEOUT_SEC)
             for sjob in stale_jobs:
                 job_id = UUID(str(sjob["id"]))
-                await requeue_job(
+                priority = sjob.get("priority", 0)
+                await enqueue_job(
                     job_id=job_id,
-                    processing_queue=settings.DEFAULT_PROCESSING_QUEUE,
-                    target_queue=self.target_queue,
+                    priority=priority,
                     client=self.redis_client,
                 )
-                logger.warning("[Scheduler] Reclaimed stranded job %s back to %s", job_id, self.target_queue)
+                logger.warning("[Scheduler] Reclaimed stranded job %s (priority %d) back to queue", job_id, priority)
         except Exception as e:
             logger.error("[Scheduler] Error in reaper cycle: %s", e)
 

@@ -192,3 +192,39 @@ async def get_active_worker_count() -> int:
             row = await cur.fetchone()
     return row["cnt"] if row else 0
 
+
+async def cancel_job(job_id: UUID) -> Optional[Dict[str, Any]]:
+    """
+    Cancels a job if it is currently in PENDING state.
+    If the job does not exist, returns None.
+    If the job is already RUNNING, SUCCESS, FAILED, RETRYING, or DEAD_LETTER,
+    returns the record without modifying it (no-op as per spec).
+    """
+    pool = get_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT id, status, type, priority FROM jobs WHERE id = %s;", (job_id,))
+            job = await cur.fetchone()
+            if not job:
+                return None
+
+            if job["status"] == "PENDING":
+                await cur.execute(
+                    """
+                    UPDATE jobs
+                    SET status = 'FAILED',
+                        error = 'Job cancelled by user',
+                        locked_by = NULL,
+                        locked_at = NULL
+                    WHERE id = %s AND status = 'PENDING'
+                    RETURNING id, status, type, priority;
+                    """,
+                    (job_id,),
+                )
+                updated = await cur.fetchone()
+                await conn.commit()
+                return updated or job
+
+            return job
+
+

@@ -26,9 +26,12 @@ from api.db import (
     replay_dead_letter,
     get_job_counts,
     get_active_worker_count,
+    cancel_job,
 )
+from worker.recurrence import is_valid_recurrence_rule
 from api.events import (
     emit_job_submitted,
+    emit_job_status_changed,
     emit_stats_snapshot,
     EVENTS_CHANNEL,
 )
@@ -145,6 +148,12 @@ async def health_check():
     summary="Submit a new background job",
 )
 async def submit_job(job_req: JobCreateRequest):
+    if job_req.recurrence_rule and not is_valid_recurrence_rule(job_req.recurrence_rule):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid recurrence_rule '{job_req.recurrence_rule}'. Supported formats: '@every <N>s/m/h/d' or 5-field cron (e.g. '*/5 * * * *').",
+        )
+
     job_record = await create_job(
         job_type=job_req.type,
         payload=job_req.payload,
@@ -236,6 +245,42 @@ async def list_jobs(
             await cur.execute(query, tuple(params))
             rows = await cur.fetchall()
             return [JobDetailResponse(**row) for row in rows]
+
+
+@app.post(
+    "/api/v1/jobs/{job_id}/cancel",
+    tags=["Jobs"],
+    summary="Cancel a pending job (no-op if already running or completed)",
+)
+async def cancel_job_by_id(job_id: UUID):
+    record = await cancel_job(job_id)
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job with ID {job_id} not found",
+        )
+
+    # Best-effort removal from Redis queues if still waiting
+    try:
+        r = get_redis()
+        await r.lrem(settings.DEFAULT_QUEUE, 0, str(job_id))
+        await r.lrem(settings.HIGH_QUEUE, 0, str(job_id))
+        await r.lrem(settings.LOW_QUEUE, 0, str(job_id))
+        await r.zrem(settings.DEFAULT_SCHEDULED_SET, str(job_id))
+        await emit_job_status_changed(
+            r,
+            job_id=str(job_id),
+            job_type=record.get("type", "unknown"),
+            status=record["status"],
+        )
+    except Exception:
+        pass
+
+    return {
+        "message": "Job cancellation processed",
+        "job_id": job_id,
+        "status": record["status"],
+    }
 
 
 # ---------------------------------------------------------------------------
