@@ -91,8 +91,8 @@ async def submit_job(job_req: JobCreateRequest):
     # 2. If it's not a delayed job, push onto Redis immediately (FIFO)
     # If scheduled_for is set, register into Redis scheduled sorted set
     if job_req.scheduled_for is None:
-        await enqueue_job(job_id=job_id)
-        logger.info("Submitted and enqueued job %s (type: %s)", job_id, job_req.type)
+        await enqueue_job(job_id=job_id, priority=job_req.priority)
+        logger.info("Submitted and enqueued job %s (type: %s, priority: %d)", job_id, job_req.type, job_req.priority)
     else:
         await schedule_job(job_id=job_id, scheduled_for=job_req.scheduled_for)
         logger.info("Scheduled job %s for %s", job_id, job_req.scheduled_for)

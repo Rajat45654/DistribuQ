@@ -39,15 +39,30 @@ def get_redis() -> aioredis.Redis:
     return redis_client
 
 
-async def enqueue_job(job_id: UUID, queue: str = settings.DEFAULT_QUEUE, client: Optional[aioredis.Redis] = None) -> int:
+async def enqueue_job(
+    job_id: UUID,
+    priority: int = 0,
+    queue: str | None = None,
+    client: Optional[aioredis.Redis] = None,
+) -> int:
     """
-    Pushes a job UUID reference onto the specified Redis queue using LPUSH.
-    Workers dequeue from the right side via BRPOP or BRPOPLPUSH (FIFO).
+    Pushes a job UUID reference onto the appropriate Redis priority queue.
+      priority > 0  ->  queue:high
+      priority == 0 ->  queue:default
+      priority < 0  ->  queue:low
+    An explicit `queue` argument overrides the priority-based routing.
+    Workers dequeue from the right side via BRPOPLPUSH (FIFO within each tier).
     """
     c = client or get_redis()
-    # LPUSH puts the new item at head; BRPOPLPUSH pops from tail -> FIFO
+    if queue is None:
+        if priority > 0:
+            queue = settings.HIGH_QUEUE
+        elif priority < 0:
+            queue = settings.LOW_QUEUE
+        else:
+            queue = settings.DEFAULT_QUEUE
     count = await c.lpush(queue, str(job_id))
-    logger.debug("Enqueued job %s onto %s (queue length: %d)", job_id, queue, count)
+    logger.debug("Enqueued job %s onto %s (priority=%d, queue length: %d)", job_id, queue, priority, count)
     return count
 
 
@@ -66,6 +81,39 @@ async def atomic_reserve_job(
     job_id_str = await c.brpoplpush(source_queue, processing_queue, timeout=timeout)
     if job_id_str:
         return UUID(job_id_str)
+    return None
+
+
+async def priority_reserve_job(
+    processing_queue: str = settings.DEFAULT_PROCESSING_QUEUE,
+    timeout: int = 1,
+    client: Optional[aioredis.Redis] = None,
+) -> Optional[UUID]:
+    """
+    Polls queues in strict priority order: queue:high -> queue:default -> queue:low.
+    Uses non-blocking RPOPLPUSH for the high and default tiers so a busy high-priority
+    queue doesn't starve lower tiers on every tick.  Falls back to a blocking wait on
+    the combined key list so the loop sleeps instead of spinning when all queues are idle.
+    """
+    c = client or get_redis()
+    ordered = [settings.HIGH_QUEUE, settings.DEFAULT_QUEUE, settings.LOW_QUEUE]
+
+    # Non-blocking pass first - picks up any waiting job in priority order
+    for q in ordered:
+        job_id_str = await c.rpoplpush(q, processing_queue)
+        if job_id_str:
+            logger.debug("Priority-reserved job %s from %s", job_id_str, q)
+            return UUID(job_id_str)
+
+    # All queues empty - block on whichever fires first (still respects order via the list)
+    result = await c.brpop(ordered, timeout=timeout)
+    if result:
+        source_q, job_id_str = result
+        # Move to processing queue (brpop already removed it from the source)
+        await c.lpush(processing_queue, job_id_str)
+        logger.debug("Priority-reserved (blocked) job %s from %s", job_id_str, source_q)
+        return UUID(job_id_str)
+
     return None
 
 

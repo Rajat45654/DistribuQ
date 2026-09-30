@@ -8,3 +8,6 @@ htmlcov/
 *.log
 .env
 .env.local
+
+# Local dev journal - never pushed
+DEV_JOURNAL.md

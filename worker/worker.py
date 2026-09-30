@@ -10,7 +10,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from api.config import settings
-from api.redis_client import atomic_reserve_job, ack_job, schedule_job, enqueue_job
+from api.redis_client import atomic_reserve_job, ack_job, schedule_job, enqueue_job, priority_reserve_job
 from worker.db import (
     init_worker_db_pool,
     close_worker_db_pool,
@@ -85,9 +85,8 @@ class Worker:
         try:
             while self.running:
                 try:
-                    # Atomically reserve job from source queue into processing queue
-                    job_id = await atomic_reserve_job(
-                        source_queue=self.queue,
+                    # Poll high -> default -> low in strict priority order
+                    job_id = await priority_reserve_job(
                         processing_queue=self.processing_queue,
                         timeout=1,
                         client=self.redis_client,
