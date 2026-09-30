@@ -164,3 +164,31 @@ async def replay_dead_letter(identifier: UUID) -> Optional[Dict[str, Any]]:
             return {"dead_letter_id": dl_id, "job_id": job_id}
 
 
+async def get_job_counts() -> Dict[str, int]:
+    """Returns a dict of job status -> count for the dashboard stats snapshot."""
+    query = """
+        SELECT status, COUNT(*) AS cnt
+        FROM jobs
+        GROUP BY status;
+    """
+    pool = get_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query)
+            rows = await cur.fetchall()
+    base = {"PENDING": 0, "RUNNING": 0, "SUCCESS": 0, "FAILED": 0, "RETRYING": 0, "DEAD_LETTER": 0}
+    for row in rows:
+        base[row["status"]] = row["cnt"]
+    return base
+
+
+async def get_active_worker_count() -> int:
+    """Returns the number of workers with status = 'ALIVE'."""
+    query = "SELECT COUNT(*) AS cnt FROM workers WHERE status = 'ALIVE';"
+    pool = get_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query)
+            row = await cur.fetchone()
+    return row["cnt"] if row else 0
+

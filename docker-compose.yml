@@ -37,6 +37,10 @@ services:
     command: python -m api.run
     ports:
       - "8080:8080"
+      - "8000:8080"
+    volumes:
+      - .:/app
+      - /app/.venv
     environment:
       - DATABASE_URL=postgresql://distribuq:password@postgres:5432/distribuq
       - REDIS_URL=redis://redis:6379/0
@@ -51,6 +55,25 @@ services:
   worker:
     build: .
     command: python -m worker.worker
+    volumes:
+      - .:/app
+      - /app/.venv
+    environment:
+      - DATABASE_URL=postgresql://distribuq:password@postgres:5432/distribuq
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    command: python -m scheduler.scheduler
+    volumes:
+      - .:/app
+      - /app/.venv
     environment:
       - DATABASE_URL=postgresql://distribuq:password@postgres:5432/distribuq
       - REDIS_URL=redis://redis:6379/0

@@ -11,6 +11,7 @@ if sys.platform == "win32":
 
 from api.config import settings
 from api.redis_client import atomic_reserve_job, ack_job, schedule_job, enqueue_job, priority_reserve_job
+from api.events import emit_job_status_changed, emit_worker_dead
 from worker.db import (
     init_worker_db_pool,
     close_worker_db_pool,
@@ -59,6 +60,33 @@ class Worker:
         logger.info("[%s] Received shutdown signal (%s). Initiating graceful shutdown...", self.worker_id, signum)
         self.running = False
 
+    async def _kill_subscriber(self) -> None:
+        """
+        Subscribes to distribuq:kill:<worker_id> Redis channel.
+        If a 'kill' message arrives, sets running=False so the worker exits cleanly.
+        This is what the chaos endpoint triggers.
+        """
+        kill_channel = f"distribuq:kill:{self.worker_id}"
+        sub_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        pubsub = sub_client.pubsub()
+        await pubsub.subscribe(kill_channel)
+        logger.info("[%s] Listening for kill commands on %s", self.worker_id, kill_channel)
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "message" and message.get("data") == "kill":
+                    logger.warning("[%s] Kill command received - initiating graceful shutdown", self.worker_id)
+                    self.running = False
+                    break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            try:
+                await pubsub.unsubscribe(kill_channel)
+                await pubsub.aclose()
+                await sub_client.aclose()
+            except Exception:
+                pass
+
     async def start(self):
         self.running = True
         logger.info(
@@ -79,8 +107,9 @@ class Worker:
         self.redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
         await self.redis_client.ping()
 
-        # Start periodic background heartbeats
+        # Start heartbeat + kill subscriber as background tasks
         await self.heartbeat.start()
+        kill_task = asyncio.create_task(self._kill_subscriber(), name=f"kill-sub-{self.worker_id}")
 
         try:
             while self.running:
@@ -104,7 +133,25 @@ class Worker:
                         await asyncio.sleep(0.5)
 
         finally:
+            kill_task.cancel()
+            try:
+                await kill_task
+            except asyncio.CancelledError:
+                pass
             await self.shutdown()
+
+    async def _emit(self, job_id: UUID, job_type: str, status: str) -> None:
+        """Best-effort event emission - never blocks or raises."""
+        try:
+            await emit_job_status_changed(
+                self.redis_client,
+                job_id=str(job_id),
+                job_type=job_type,
+                status=status,
+                worker_id=self.worker_id,
+            )
+        except Exception:
+            pass
 
     async def process_job(self, job_id: UUID):
         logger.info("[%s] Reserved job %s in %s", self.worker_id, job_id, self.processing_queue)
@@ -124,6 +171,7 @@ class Worker:
             job["attempts"],
             job["max_attempts"],
         )
+        await self._emit(job_id, job_type, "RUNNING")
 
         try:
             handler = get_handler(job_type)
@@ -132,12 +180,12 @@ class Worker:
             await mark_job_success(job_id, result)
             self.jobs_processed += 1
             logger.info("[%s] Job %s COMPLETED successfully with result: %s", self.worker_id, job_id, result)
+            await self._emit(job_id, job_type, "SUCCESS")
 
             # --- Recurring job: schedule next occurrence ---
             recurrence_rule = job.get("recurrence_rule")
             if recurrence_rule:
                 try:
-                    from datetime import timezone as _tz
                     next_run = compute_next_run(recurrence_rule)
                     next_job = await schedule_next_occurrence(
                         job_type=job_type,
@@ -151,15 +199,12 @@ class Worker:
                     await schedule_job(job_id=next_job_id, scheduled_for=next_run, client=self.redis_client)
                     logger.info(
                         "[%s] Recurring job %s -> next occurrence %s scheduled for %s",
-                        self.worker_id,
-                        job_id,
-                        next_job_id,
-                        next_run,
+                        self.worker_id, job_id, next_job_id, next_run,
                     )
                 except Exception as recur_err:
                     logger.error(
                         "[%s] Failed to schedule next occurrence for recurring job %s: %s",
-                        self.worker_id, job_id, recur_err
+                        self.worker_id, job_id, recur_err,
                     )
         except Exception as err:
             logger.error("[%s] Job %s FAILED with error: %s", self.worker_id, job_id, err)
@@ -170,32 +215,30 @@ class Worker:
                 base_delay = payload.get("_base_delay", 1.0) if isinstance(payload, dict) else 1.0
                 next_retry = compute_next_retry_at(attempt=current_attempts, base_delay=base_delay)
                 await mark_job_retrying(job_id, str(err), next_retry)
+                await self._emit(job_id, job_type, "RETRYING")
                 logger.warning(
                     "[%s] Job %s scheduled for retry (attempt %d/%d) at %s",
-                    self.worker_id,
-                    job_id,
-                    current_attempts,
-                    max_attempts,
-                    next_retry,
+                    self.worker_id, job_id, current_attempts, max_attempts, next_retry,
                 )
             else:
                 await move_to_dead_letter(job_id, str(err), current_attempts)
+                await self._emit(job_id, job_type, "DEAD_LETTER")
                 logger.warning(
                     "[%s] Job %s exceeded max attempts (%d/%d), moved to dead-letter queue",
-                    self.worker_id,
-                    job_id,
-                    current_attempts,
-                    max_attempts,
+                    self.worker_id, job_id, current_attempts, max_attempts,
                 )
 
             self.jobs_processed += 1
         finally:
-
             # Acknowledge and remove from the processing list once persisted to Postgres
             await ack_job(job_id, self.processing_queue, self.redis_client)
 
     async def shutdown(self):
         logger.info("[%s] Shutting down worker...", self.worker_id)
+        try:
+            await emit_worker_dead(self.redis_client, self.worker_id)
+        except Exception:
+            pass
         if self.heartbeat:
             await self.heartbeat.stop()
         if self.redis_client:
@@ -221,4 +264,3 @@ if __name__ == "__main__":
             asyncio.run(run_worker())
     except KeyboardInterrupt:
         pass
-

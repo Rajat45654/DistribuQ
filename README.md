@@ -84,6 +84,9 @@ python scripts/demo_phase3.py
 
 # Phase 4: Delayed jobs, recurring jobs, priority queues
 python scripts/demo_phase4.py
+
+# Phase 5: Real-time dashboard & live WebSocket events
+python scripts/demo_phase5.py
 ```
 
 ---
@@ -93,7 +96,7 @@ python scripts/demo_phase4.py
 - [x] **Phase 2: Multiple Workers, Concurrency Safety** *(Completed)*
 - [x] **Phase 3: Retries, Backoff, Dead-Letter Queue** *(Completed)*
 - [x] **Phase 4: Scheduling - Delayed Jobs, Recurring Jobs, Priority Queues** *(Completed)*
-- [ ] **Phase 5: Real-Time Dashboard**
+- [x] **Phase 5: Real-Time Dashboard** *(Completed)*
 - [ ] **Phase 6: Performance Testing & Scaling Analysis**
 
 ---
@@ -126,3 +129,21 @@ Workers drain `queue:high` before `queue:default` before `queue:low`.
 ```json
 { "type": "urgent_task", "payload": {}, "priority": 10 }
 ```
+
+---
+
+## Phase 5 Features — Real-Time Dashboard
+
+Navigate to `http://localhost:8000/dashboard/` (or `http://localhost:8000/` which redirects there) to open the live web dashboard.
+
+### Key Capabilities
+- **Live Status Cards**: Real-time reactive counters for `PENDING`, `RUNNING`, `SUCCESS`, `RETRYING`, `FAILED`, and `DEAD_LETTER` with proportional status bar fills.
+- **WebSocket Event Bus (`/ws/dashboard`)**: Redis pub/sub channel `distribuq:events` fans out instant state changes to all connected web clients without page reloads.
+- **Real-Time Throughput Chart**: Built with native HTML5 Canvas, tracking rolling completed jobs (success vs. failure rates) in 5-second sampling buckets.
+- **Live Event Stream**: Real-time console showing timestamped job transitions, worker heartbeats, and system events with colored status badges.
+- **Worker Health Monitor**: Displays registered workers with pulsating green/red status indicators, heartbeat timestamps, and lifetime job counts.
+- **Job Inspection & Details**: Interactive table of recent jobs with click-to-view modal displaying JSON payload, execution results, error stack traces, and attempt counts.
+- **Interactive Controls**:
+  - **Submit Job**: Modal dialog allowing on-the-fly job creation with custom type, priority, max attempts, and payload.
+  - **Chaos Injection (`/api/v1/dev/kill-worker`)**: Kills an active worker to demonstrate automatic visibility timeout reclamation and failover.
+

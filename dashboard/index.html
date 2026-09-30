@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DistribuQ — Live Dashboard</title>
+  <meta name="description" content="Real-time monitoring dashboard for the DistribuQ distributed task queue system." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ───────── HEADER ───────── -->
+<header class="header">
+  <div class="header-inner">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+      </div>
+      <span class="brand-name">DistribuQ</span>
+      <span class="brand-badge">Live</span>
+    </div>
+    <div class="header-right">
+      <div class="ws-indicator" id="ws-indicator">
+        <span class="ws-dot"></span>
+        <span class="ws-label" id="ws-label">Connecting…</span>
+      </div>
+      <button class="btn btn-ghost" id="btn-submit-job" title="Submit test job">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Submit Job
+      </button>
+      <button class="btn btn-danger" id="btn-chaos" title="Kill a random worker">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        Chaos
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ───────── MAIN ───────── -->
+<main class="main">
+
+  <!-- Status cards -->
+  <section class="stats-grid" aria-label="Job status summary">
+    <div class="stat-card" id="card-pending">
+      <div class="stat-label">Pending</div>
+      <div class="stat-value" id="count-pending">–</div>
+      <div class="stat-bar"><div class="stat-bar-fill" id="bar-pending"></div></div>
+    </div>
+    <div class="stat-card" id="card-running">
+      <div class="stat-label">Running</div>
+      <div class="stat-value" id="count-running">–</div>
+      <div class="stat-bar"><div class="stat-bar-fill" id="bar-running"></div></div>
+    </div>
+    <div class="stat-card" id="card-success">
+      <div class="stat-label">Success</div>
+      <div class="stat-value" id="count-success">–</div>
+      <div class="stat-bar"><div class="stat-bar-fill" id="bar-success"></div></div>
+    </div>
+    <div class="stat-card" id="card-retrying">
+      <div class="stat-label">Retrying</div>
+      <div class="stat-value" id="count-retrying">–</div>
+      <div class="stat-bar"><div class="stat-bar-fill" id="bar-retrying"></div></div>
+    </div>
+    <div class="stat-card" id="card-failed">
+      <div class="stat-label">Failed</div>
+      <div class="stat-value" id="count-failed">–</div>
+      <div class="stat-bar"><div class="stat-bar-fill" id="bar-failed"></div></div>
+    </div>
+    <div class="stat-card" id="card-dead">
+      <div class="stat-label">Dead Letter</div>
+      <div class="stat-value" id="count-dead">–</div>
+      <div class="stat-bar"><div class="stat-bar-fill" id="bar-dead"></div></div>
+    </div>
+  </section>
+
+  <!-- Two column layout -->
+  <div class="cols">
+
+    <!-- Left: throughput chart + event feed -->
+    <div class="col-left">
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Throughput <span class="panel-sub">(jobs completed / 10s window)</span></h2>
+          <div class="chart-legend">
+            <span class="legend-dot legend-success"></span>Success
+            <span class="legend-dot legend-failed" style="margin-left:10px"></span>Failed
+          </div>
+        </div>
+        <canvas id="throughput-chart" width="600" height="160" aria-label="Throughput chart"></canvas>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Live Event Feed</h2>
+          <button class="btn btn-ghost btn-xs" id="btn-clear-feed">Clear</button>
+        </div>
+        <div class="event-feed" id="event-feed" aria-live="polite" aria-label="Live event feed"></div>
+      </div>
+    </div>
+
+    <!-- Right: workers + recent jobs -->
+    <div class="col-right">
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Workers <span class="badge" id="worker-count-badge">0</span></h2>
+        </div>
+        <div class="worker-list" id="worker-list">
+          <div class="empty-state">No workers registered</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Recent Jobs</h2>
+          <button class="btn btn-ghost btn-xs" id="btn-refresh-jobs">Refresh</button>
+        </div>
+        <div class="job-table-wrap">
+          <table class="job-table" id="job-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Priority</th>
+                <th>Attempts</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody id="job-table-body">
+              <tr><td colspan="6" class="empty-td">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- ───────── TOAST ───────── -->
+<div class="toast-container" id="toast-container" aria-live="assertive"></div>
+
+<!-- ───────── JOB DETAIL MODAL ───────── -->
+<div class="modal-overlay" id="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-header">
+      <h3 class="modal-title" id="modal-title">Job Detail</h3>
+      <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
