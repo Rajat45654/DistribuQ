@@ -35,6 +35,7 @@ services:
   api:
     build: .
     command: python -m api.run
+    restart: unless-stopped
     ports:
       - "8080:8080"
       - "8000:8080"
@@ -55,6 +56,7 @@ services:
   worker:
     build: .
     command: python -m worker.worker
+    restart: unless-stopped
     volumes:
       - .:/app
       - /app/.venv
@@ -71,6 +73,7 @@ services:
   scheduler:
     build: .
     command: python -m scheduler.scheduler
+    restart: unless-stopped
     volumes:
       - .:/app
       - /app/.venv
