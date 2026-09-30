@@ -289,3 +289,39 @@ async def reclaim_due_retry_jobs() -> list[dict]:
             return rows
 
 
+async def schedule_next_occurrence(
+    job_type: str,
+    payload: Dict[str, Any],
+    recurrence_rule: str,
+    scheduled_for,
+    max_attempts: int = 3,
+    priority: int = 0,
+) -> Dict[str, Any]:
+    """
+    Creates a new job row for the next occurrence of a recurring job.
+    Returns the newly created job record (dict).
+    """
+    query = """
+        INSERT INTO jobs (type, payload, priority, max_attempts, scheduled_for, recurrence_rule, status)
+        VALUES (%s, %s, %s, %s, %s, %s, 'PENDING')
+        RETURNING id, type, payload, status, priority, attempts, max_attempts,
+                  next_retry_at, scheduled_for, recurrence_rule, result, error,
+                  locked_by, locked_at, created_at, updated_at;
+    """
+    pool = get_worker_db_pool()
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                query,
+                (
+                    job_type,
+                    Jsonb(payload),
+                    priority,
+                    max_attempts,
+                    scheduled_for,
+                    recurrence_rule,
+                ),
+            )
+            row = await cur.fetchone()
+            await conn.commit()
+            return row

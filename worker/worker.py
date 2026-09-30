@@ -10,7 +10,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from api.config import settings
-from api.redis_client import atomic_reserve_job, ack_job
+from api.redis_client import atomic_reserve_job, ack_job, schedule_job, enqueue_job
 from worker.db import (
     init_worker_db_pool,
     close_worker_db_pool,
@@ -19,11 +19,13 @@ from worker.db import (
     mark_job_failed,
     mark_job_retrying,
     move_to_dead_letter,
+    schedule_next_occurrence,
 )
 from worker.handlers.registry import get_handler, execute_handler
 import worker.handlers.default_handlers  # ensure default handlers are registered
 from worker.heartbeat import HeartbeatManager
 from worker.retry import compute_next_retry_at
+from worker.recurrence import compute_next_run
 
 
 logging.basicConfig(
@@ -131,6 +133,35 @@ class Worker:
             await mark_job_success(job_id, result)
             self.jobs_processed += 1
             logger.info("[%s] Job %s COMPLETED successfully with result: %s", self.worker_id, job_id, result)
+
+            # --- Recurring job: schedule next occurrence ---
+            recurrence_rule = job.get("recurrence_rule")
+            if recurrence_rule:
+                try:
+                    from datetime import timezone as _tz
+                    next_run = compute_next_run(recurrence_rule)
+                    next_job = await schedule_next_occurrence(
+                        job_type=job_type,
+                        payload=job["payload"] or {},
+                        recurrence_rule=recurrence_rule,
+                        scheduled_for=next_run,
+                        max_attempts=job.get("max_attempts", 3),
+                        priority=job.get("priority", 0),
+                    )
+                    next_job_id = next_job["id"]
+                    await schedule_job(job_id=next_job_id, scheduled_for=next_run, client=self.redis_client)
+                    logger.info(
+                        "[%s] Recurring job %s -> next occurrence %s scheduled for %s",
+                        self.worker_id,
+                        job_id,
+                        next_job_id,
+                        next_run,
+                    )
+                except Exception as recur_err:
+                    logger.error(
+                        "[%s] Failed to schedule next occurrence for recurring job %s: %s",
+                        self.worker_id, job_id, recur_err
+                    )
         except Exception as err:
             logger.error("[%s] Job %s FAILED with error: %s", self.worker_id, job_id, err)
             current_attempts = job.get("attempts", 1)
