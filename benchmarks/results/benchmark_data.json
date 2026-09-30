@@ -1,0 +1,158 @@
+[
+  {
+    "timestamp": "2026-09-30T17:55:18.450493+00:00",
+    "total_jobs": 250,
+    "concurrency": 10,
+    "job_type": "test_echo",
+    "submission": {
+      "duration_sec": 2.283,
+      "throughput_jobs_sec": 109.49,
+      "latency_ms": {
+        "min": 50.52,
+        "p50": 70.07,
+        "p90": 105.34,
+        "p95": 131.39,
+        "p99": 195.79,
+        "max": 279.27,
+        "mean": 78.85,
+        "stddev": 28.33
+      }
+    },
+    "processing": {
+      "duration_sec": 0.651,
+      "effective_throughput_jobs_sec": 85.18,
+      "turnaround_latency_ms": {
+        "min": 6.32,
+        "p50": 89.53,
+        "p90": 153.26,
+        "p95": 182.45,
+        "p99": 197.99,
+        "max": 208.65,
+        "mean": 92.95,
+        "stddev": 48.01
+      },
+      "status_counts": {
+        "SUCCESS": 250
+      },
+      "reliability_pct": 100.0
+    },
+    "worker_count": 1
+  },
+  {
+    "timestamp": "2026-09-30T17:55:28.410717+00:00",
+    "total_jobs": 250,
+    "concurrency": 10,
+    "job_type": "test_echo",
+    "submission": {
+      "duration_sec": 2.321,
+      "throughput_jobs_sec": 107.71,
+      "latency_ms": {
+        "min": 40.87,
+        "p50": 72.25,
+        "p90": 101.16,
+        "p95": 127.88,
+        "p99": 176.55,
+        "max": 242.24,
+        "mean": 78.98,
+        "stddev": 23.17
+      }
+    },
+    "processing": {
+      "duration_sec": 0.061,
+      "effective_throughput_jobs_sec": 104.93,
+      "turnaround_latency_ms": {
+        "min": 5.88,
+        "p50": 9.04,
+        "p90": 20.41,
+        "p95": 32.94,
+        "p99": 40.1,
+        "max": 47.7,
+        "mean": 11.61,
+        "stddev": 7.72
+      },
+      "status_counts": {
+        "SUCCESS": 250
+      },
+      "reliability_pct": 100.0
+    },
+    "worker_count": 5
+  },
+  {
+    "timestamp": "2026-09-30T17:55:40.473930+00:00",
+    "total_jobs": 250,
+    "concurrency": 20,
+    "job_type": "test_echo",
+    "submission": {
+      "duration_sec": 3.709,
+      "throughput_jobs_sec": 67.4,
+      "latency_ms": {
+        "min": 83.6,
+        "p50": 114.9,
+        "p90": 592.15,
+        "p95": 1025.41,
+        "p99": 1777.18,
+        "max": 2543.3,
+        "mean": 261.85,
+        "stddev": 356.98
+      }
+    },
+    "processing": {
+      "duration_sec": 0.063,
+      "effective_throughput_jobs_sec": 66.28,
+      "turnaround_latency_ms": {
+        "min": 5.23,
+        "p50": 7.33,
+        "p90": 12.83,
+        "p95": 28.32,
+        "p99": 43.98,
+        "max": 44.67,
+        "mean": 9.8,
+        "stddev": 7.49
+      },
+      "status_counts": {
+        "SUCCESS": 250
+      },
+      "reliability_pct": 100.0
+    },
+    "worker_count": 10
+  },
+  {
+    "timestamp": "2026-09-30T17:55:54.178761+00:00",
+    "total_jobs": 250,
+    "concurrency": 25,
+    "job_type": "test_echo",
+    "submission": {
+      "duration_sec": 3.9,
+      "throughput_jobs_sec": 64.1,
+      "latency_ms": {
+        "min": 97.79,
+        "p50": 137.88,
+        "p90": 938.46,
+        "p95": 1227.58,
+        "p99": 2234.21,
+        "max": 2880.6,
+        "mean": 344.05,
+        "stddev": 437.86
+      }
+    },
+    "processing": {
+      "duration_sec": 0.067,
+      "effective_throughput_jobs_sec": 63.01,
+      "turnaround_latency_ms": {
+        "min": 5.38,
+        "p50": 7.82,
+        "p90": 41.79,
+        "p95": 57.96,
+        "p99": 122.23,
+        "max": 151.18,
+        "mean": 15.25,
+        "stddev": 22.18
+      },
+      "status_counts": {
+        "SUCCESS": 250
+      },
+      "reliability_pct": 100.0
+    },
+    "worker_count": 20
+  }
+]

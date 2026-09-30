@@ -97,7 +97,7 @@ python scripts/demo_phase5.py
 - [x] **Phase 3: Retries, Backoff, Dead-Letter Queue** *(Completed)*
 - [x] **Phase 4: Scheduling - Delayed Jobs, Recurring Jobs, Priority Queues** *(Completed)*
 - [x] **Phase 5: Real-Time Dashboard** *(Completed)*
-- [ ] **Phase 6: Performance Testing & Scaling Analysis**
+- [x] **Phase 6: Performance Testing & Scaling Analysis** *(Completed)*
 
 ---
 
@@ -147,3 +147,38 @@ Navigate to `http://localhost:8000/dashboard/` (or `http://localhost:8000/` whic
   - **Submit Job**: Modal dialog allowing on-the-fly job creation with custom type, priority, max attempts, and payload.
   - **Chaos Injection (`/api/v1/dev/kill-worker`)**: Kills an active worker to demonstrate automatic visibility timeout reclamation and failover.
 
+---
+
+## Phase 6 Features — Performance Testing & Scaling Analysis
+
+Full empirical benchmark documentation and bottleneck analysis is available in [BENCHMARKS.md](file:///d:/DistribuQ/BENCHMARKS.md).
+
+### 1. High-Throughput Async Load Generator
+Simulate high-concurrency client traffic with configurable submission rates and execution durations:
+```bash
+python benchmarks/load_test.py --jobs 500 --concurrency 25 --rate 100
+```
+Measures:
+- Total throughput (jobs/sec submitted and processed)
+- Latency percentiles: p50, p90, p95, p99 turnaround times
+- Error rate and database verification
+
+### 2. Chaos Engineering Under Heavy Load
+Tests system resilience by systematically injecting worker crashes during active pipeline processing:
+```bash
+python benchmarks/chaos_under_load.py --jobs 100 --kill-interval 3.0
+```
+Validates zero job loss, automatic visibility timeout expiration, and seamless reaper recovery.
+
+### 3. Automated Multi-Worker Scaling Sweep
+Automates worker pool scaling across 1, 5, 10, and 20 worker containers:
+```bash
+# Run full matrix sweep and regenerate charts
+python benchmarks/run_benchmarks.py --jobs 300
+
+# Regenerate report and charts from existing run data
+python benchmarks/run_benchmarks.py --report-only
+```
+Results and charts are saved to:
+- `benchmarks/results/benchmark_data.json`
+- `benchmarks/results/scaling_charts.png`
