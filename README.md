@@ -27,8 +27,9 @@ DistribuQ is a distributed task queue system designed for high concurrency, faul
 
 ## Tech Stack
 - **API Framework**: FastAPI, Uvicorn (async-native)
-- **Transport Queue**: Redis (FIFO via `LPUSH` / `BRPOP`, atomic reserve via `BRPOPLPUSH`)
+- **Transport Queue**: Redis (FIFO via `LPUSH` / `BRPOP`, priority tiers via `queue:high/default/low`, scheduled set via sorted set)
 - **Job Store**: PostgreSQL 16 (single source of truth with UUIDs, JSONB payloads, and indexing)
+- **Scheduling**: Dedicated scheduler process + Redis sorted set for delayed/recurring jobs; `croniter` for cron expressions
 - **Testing**: Pytest, Pytest-Asyncio, HTTPX
 
 ---
@@ -65,7 +66,12 @@ python -m worker.worker
 python -m worker.reaper
 ```
 
-### 6. Run Live Demos
+### 6. Run the Scheduler (for Delayed & Recurring Jobs)
+```bash
+python -m scheduler.scheduler
+```
+
+### 7. Run Live Demos
 ```bash
 # Phase 1: Core single-worker queue
 python scripts/demo_phase1.py
@@ -75,6 +81,9 @@ python scripts/demo_phase2.py
 
 # Phase 3: Retries, exponential backoff, DLQ & replay
 python scripts/demo_phase3.py
+
+# Phase 4: Delayed jobs, recurring jobs, priority queues
+python scripts/demo_phase4.py
 ```
 
 ---
@@ -83,6 +92,37 @@ python scripts/demo_phase3.py
 - [x] **Phase 1: Core Queue, Single Worker** *(Completed)*
 - [x] **Phase 2: Multiple Workers, Concurrency Safety** *(Completed)*
 - [x] **Phase 3: Retries, Backoff, Dead-Letter Queue** *(Completed)*
-- [ ] **Phase 4: Scheduling: Delayed & Recurring Jobs**
+- [x] **Phase 4: Scheduling - Delayed Jobs, Recurring Jobs, Priority Queues** *(Completed)*
 - [ ] **Phase 5: Real-Time Dashboard**
 - [ ] **Phase 6: Performance Testing & Scaling Analysis**
+
+---
+
+## Phase 4 Features
+
+### Delayed Jobs
+Submit a job with a `scheduled_for` timestamp - it will not execute until that time.
+```json
+{ "type": "test_echo", "payload": {}, "scheduled_for": "2024-12-01T12:00:00Z" }
+```
+The Scheduler daemon (`python -m scheduler.scheduler`) monitors a Redis sorted set and promotes due jobs to the active queue atomically via a Lua script.
+
+### Recurring Jobs
+Submit a job with a `recurrence_rule` - the next occurrence is automatically scheduled after each successful run.
+```json
+{ "type": "test_echo", "payload": {}, "recurrence_rule": "@every 5m" }
+```
+Supported formats:
+- `@every <N>s/m/h/d` - e.g. `@every 30s`, `@every 1h30m`
+- Standard 5-field cron - e.g. `*/5 * * * *`, `0 9 * * 1`
+
+### Priority Queues
+Jobs route to different Redis lists based on priority:
+- `priority > 0` → `queue:high`
+- `priority == 0` → `queue:default` (default)
+- `priority < 0` → `queue:low`
+
+Workers drain `queue:high` before `queue:default` before `queue:low`.
+```json
+{ "type": "urgent_task", "payload": {}, "priority": 10 }
+```

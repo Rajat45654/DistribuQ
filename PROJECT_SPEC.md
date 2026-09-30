@@ -283,7 +283,7 @@ distribuq/
 
 - [x] Phase 1 — Core Queue, Single Worker
 - [x] Phase 2 — Multiple Workers, Concurrency Safety
-- [ ] Phase 3 — Retries, Backoff, Dead-Letter Queue
-- [ ] Phase 4 — Scheduling
+- [x] Phase 3 — Retries, Backoff, Dead-Letter Queue
+- [x] Phase 4 — Scheduling (Delayed Jobs, Recurring Jobs, Priority Queues)
 - [ ] Phase 5 — Real-Time Dashboard
 - [ ] Phase 6 — Performance Testing & Scaling Analysis
